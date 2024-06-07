@@ -2,17 +2,17 @@
 ## imports
 import pandas as pd
 import numpy as np
-import reverse_geocoder as geo
+import geopandas as gp
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
 from datetime import date
 from dateutil.relativedelta import relativedelta
-from scipy.stats import pearsonr
-from sklearn.feature_extraction.text import TfidfVectorizer
-import nltk
-from nltk.corpus import stopwords
 import matplotlib as mpl
+from matplotlib import dates
 from matplotlib import pyplot as plt
 import seaborn as sns
-
+import plotly.express as px
+import plotly
 ## useful tip
 
 pd.set_option('display.max_rows', 100)
@@ -81,15 +81,29 @@ sales = shorter.groupby(['listing_id']).sum()
 # Renaming the summed 'adjusted_price' column to 'sales' #
 sales.rename({'adjusted_price':'sales'}, axis=1, inplace=True)
 ## Using the latitude and longitude to find an accurate location and fill in nans
-# Combining the latitude and longitude into strs to be used by reverse_geocoder
-details = listings
-details['latitude'] = details['latitude'].astype(str)
-details['longitude'] = details['longitude'].astype(str)
-# Using reverse_geocoder to find the district names from the coordinates
-coords = [(details['latitude'][i],details['longitude'][i]) for i in range(0,len(details['latitude']))]
-locations = geo.search(coords)
-regions = [x['name'] for x in locations]
-details['location'] = regions
+details = listings.copy()
+# Making a column with both longitude and latitude
+details['lonlat'] = details[['longitude', 'latitude']].values.tolist()
+# Function to make a shapely Point from longitude and latitude
+def find_point(x):
+    point = Point(x[0],x[1])
+    return point
+
+# Making a column of all the points
+details['point'] = details['lonlat'].apply(find_point)
+# Making a geopandas df from geojson file and isolating the Central region
+# Geojson from chingchai https://github.com/chingchai/OpenGISData-Thailand/blob/master/districts.geojson
+gdf = gp.read_file("districts.geojson")
+bkk = gdf[gdf['reg_nesdb'] == 'Central']
+# Making a function to check which of the 130 districts the shapely Point lies in
+def find_district(x):
+    for y in range(0,len(bkk)):
+        district = bkk.iloc[y]['geometry']
+        if x.within(district):
+            return bkk.iloc[y]['amp_en']
+
+
+details['location'] = details['point'].apply(find_district)
 # Merging the sales df with the details df on listing_id to add annual sales total as a feature of the listing
 annual_details = pd.merge(details,sales, how='outer', on='listing_id')
 # Merging the annual_details df with the bookings df to add total annual bookings as a feature of the listing
@@ -105,45 +119,94 @@ annual_details['host_since'] = pd.to_datetime(annual_details['host_since'])
 current_date = pd.to_datetime(calendar.date.max())
 annual_details['host_since'] = annual_details['host_since'].apply(lambda x: current_date.date() - x.date())
 annual_details['host_since'] = annual_details['host_since'].dt.days
-# Was plotting the listings with the geojson and appparently some of these listings aren't in Bangkok
-not_bkk = ['Ban Khlong Bang Sao Thong', 'Bang Kruai','Lam Luk Ka', 'Phra Pradaeng', 'Salaya']
-for x in not_bkk:
-    annual_details = annual_details[annual_details['location']!=x]
-
-# Also reversee geocoder named some Phra Nakhon listings as 'Bangkok'
-annual_details['location'] = annual_details['location'].replace({'Bangkok':'Phra Nakhon'})
-## Finding the ten highest selling listings ##
+## Finding the ten highest selling listings
 ten_highest_sales = annual_details.sort_values(by='sales',ascending=False)[:10].set_index('listing_url', drop=True)
 ten_highest_sales['sales'] = ten_highest_sales['sales']/1000000
-ten_highest_sales.rename({'sales':'Sales ฿mm'}, axis=1, inplace=True)
+ten_highest_sales.rename({'sales':'Sales ฿MM'}, axis=1, inplace=True)
 print(ten_highest_sales)
 # Saving the csv
 ten_highest_sales.to_csv('ten_highest_sales.csv')
+# Here we're going to make a txt file to save all of the html we want to put in the website
+f = open('airbnb_html.txt','w')
 # Converting the table to html for website
-#ten_highest_sales[['Sales ฿mm']].to_html().replace('\n','')
-## Finding the ten most booked listings ##
+f.write('ten_highest_sales:\n')
+f.write(ten_highest_sales[['Sales ฿MM']].to_html().replace('\n',''))
+f.write('\n\n')
+## Finding the ten most booked listings
 ten_highest_booked = annual_details.sort_values(by=['bookings','sales'],ascending=False)[:10].set_index('listing_url', drop=True)
 print(ten_highest_booked)
 # Saving the csv
 ten_highest_booked.to_csv('ten_highest_booked.csv')
 # Converting the table to html for website #
-#ten_highest_booked[['bookings']].to_html().replace('\n','')
+f.write('ten_highest_booked:\n')
+f.write(ten_highest_booked[['bookings']].to_html().replace('\n',''))
+f.write('\n\n')
 ## Finding the districts with the highest sales average and the districts with the bookings average
 districts = annual_details[['location','sales','bookings']]
 districts = districts.groupby('location').sum()
 districts['sales'] = districts['sales']/1000000
-districts.rename({'sales':'sales ฿mm'}, axis=1, inplace=True)
+districts.rename({'sales':'Sales ฿MM'}, axis=1, inplace=True)
 # Saving the csv
 districts.to_csv('districts.csv')
 # Highest Average Sales Total
-print(districts.sort_values('sales ฿mm',ascending=False)[:10])
+print(districts.sort_values('Sales ฿MM',ascending=False)[:10])
 # Converting the table to html for website
-#districts.sort_values('sales ฿mm',ascending=False)[:10].to_html().replace('\n','')
+f.write('districts sales:\n')
+f.write(districts.sort_values('sales ฿MM',ascending=False)[:10].to_html().replace('\n',''))
+f.write('\n\n')
 # Highest Average Bookings Total
-print(districts[['bookings','sales ฿mm']].sort_values('bookings',ascending=False)[:10])
+print(districts[['bookings','Sales ฿MM']].sort_values('bookings',ascending=False)[:10])
 # Converting the table to html for website
-#districts[['bookings','sales ฿mm']].sort_values('bookings',ascending=False)[:10].to_html().replace('\n','')
+f.write('districts bookings:\n')
+f.write(districts[['bookings','sales ฿MM']].sort_values('bookings',ascending=False)[:10].to_html().replace('\n',''))
+f.write('\n\n')
 
+## Plotting Districts with Plotly
+bkk['location'] = bkk['amp_en']
+choro = bkk.merge(districts, on='location')
+choro = choro[['geometry', 'location', 'sales ฿MM', 'bookings']]
+choro = choro.set_index('location')
+# Choropleth mapbox for sales
+fig = px.choropleth_mapbox(choro,
+                           geojson=choro['geometry'],
+                           locations=choro.index,
+                           color='sales ฿MM',
+                           color_continuous_scale="Viridis",
+                           center={"lat": 13.68597, "lon": 100.6038},
+                           mapbox_style="open-street-map",
+                           zoom=9.3,
+                           opacity=.71,
+                           title='Total Sales in ฿MM by District')
+
+fig.update_geos(fitbounds="locations", visible=False)
+# saving the plotly figure as an html div
+f.write('choropleth sales:\n')
+f.write(plotly.offline.plot(fig, include_plotlyjs=False, output_type='div'))
+f.write('\n\n')
+# don't forget to add the following into your html later:
+#<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+#fig.show()
+
+# chloropleth mapbox for bookings
+fig = px.choropleth_mapbox(choro,
+                           geojson=choro['geometry'],
+                           locations=choro.index,
+                           color='bookings',
+                           color_continuous_scale="Viridis",
+                           center={"lat": 13.68597, "lon": 100.6038},
+                           mapbox_style="open-street-map",
+                           zoom=9.3,
+                           opacity=.71,
+                           title='Total Bookings by District')
+
+fig.update_geos(fitbounds="locations", visible=True)
+# saving the plotly figure as an html div
+f.write('choropleth bookings:\n')
+f.write(plotly.offline.plot(fig, include_plotlyjs=False, output_type='div'))
+f.close()
+# don't forget to add the following into your html later:
+#<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+#fig.show()
 
 ## Finding daily sales and booking trends
 days_sales = calendar[['date','adjusted_price']].groupby('date').mean()
@@ -159,7 +222,6 @@ days_bookings.index = days_bookings.index.astype('datetime64[ns]')
 days_sales.to_csv('days_sales.csv')
 days_bookings.to_csv('days_bookings.csv')
 # Plotting with sns
-from matplotlib import dates
 sns.set_theme(palette='inferno')
 days_sales_fig = plt.figure()
 days_sales_plot = sns.lineplot(days_sales)
@@ -183,6 +245,7 @@ days_sales['day'] = np.array(days_sales.index)
 days_sales['day'] = days_sales['day'].dt.day_name()
 days_sales.sort_values(by='Sales ฿',ascending=False)[:100]
 # So those spikes in daily sales are fridays and saturdays or holidays
+
 
 
 
