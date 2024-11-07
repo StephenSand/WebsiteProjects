@@ -1,0 +1,129 @@
+{% extends 'zero/home.html' %}
+{% block head %}Generator{% endblock head %}
+{% block breadcrumbs %}
+<a href="/">Home</a> &rsaquo; <a href={% url 'zero:generator' object.id%}>Comment Generator</a> &rsaquo;
+{% endblock breadcrumbs %}
+
+{% block title %}
+
+This is the page for {{object.name}}. <br><br>
+1. Type the child's name.  <br>
+2. Choose the gender.<br>
+3. Select one option for each section. <br>
+4. Hit the generate button and it should copy the text to your device.<br>
+5. If not, select and copy the comment.<br>
+6. Paste the comment in your Google Sheets file.<br>
+7. Hit the clear button.<br>
+8. Repeat.
+<br>
+<br>
+<br>
+
+    If you are a site admin and you would like to remove this comment generator, please log in and press the remove button below.
+    <form action="{% url 'zero:destroy' %}" method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="pk" value="{{ object.id }}">
+                <input type="submit" value="Remove">
+              </form>
+
+<br><br><br><br><br>
+Child's Name: <input id="nickname" type="text">
+<br><br>
+<input name="gender" id="female" type="radio" value="Female">Female</input>
+<br>
+<input name="gender" id="male" type="radio" value="Male">Male</input>
+{% endblock title %}
+
+{% block content %}
+
+    {{object.htmlcode|safe}}
+
+<button onclick='generate()'>Generate &amp; Copy</button>
+    <button onclick='restart()'>Clear</button>
+    <br><br>
+    <p id='fillme'></p>
+
+
+
+    <script>
+        let comment = '';
+        function printall(x,y) {
+            if (y!=0 && y<document.querySelectorAll(':checked').length-1) {
+                comment += x.value + ' ';
+            }
+        }
+        const cats = [];
+        function findname(x) {
+            if (x.name != '' && cats.includes(x.name) == false) {
+                cats.push(x.name);
+            }
+        }
+        function generate() {
+            comment = '';
+            // check for name
+            if (document.getElementById('nickname').value == '') {
+                document.getElementById('fillme').innerHTML = 'Please make sure you have entered all fields! Thanks! :)';
+            }
+            let inputs = Array.from(document.querySelectorAll('input'));
+            inputs.forEach(findname);
+            let needchecked = cats.length -2;
+            //we subtract 2 from cats because I put in the delete button in which takes 2 inputs: pk & csrftoken
+            if (document.querySelectorAll(':checked').length != needchecked) {
+                document.getElementById('fillme').innerHTML = 'Please make sure you have entered all fields! Thanks! :)';
+            }
+            else {
+                let nickname = document.getElementById('nickname').value;
+                nickname = nickname[0].toUpperCase() + nickname.substr(1,);
+                let gender = document.querySelectorAll(':checked')[0].value;
+                let checkers = document.querySelectorAll(':checked');
+                checkers.forEach (printall);
+                comment += checkers[checkers.length-1].value;
+                if (gender == 'Female') {
+                    comment = comment.replaceAll('girl/boy','girl');
+                    comment = comment.replaceAll('She/He','She');
+                    comment = comment.replaceAll('Her/Him','Her');
+                    comment = comment.replaceAll('Her/His','Her');
+                    comment = comment.replaceAll('she/he','she');
+                    comment = comment.replaceAll('her/him','her');
+                    comment = comment.replaceAll('her/his','her');
+                    comment = comment.replaceAll('NAME',nickname);
+                } else if (gender == 'Male') {
+                    comment = comment.replaceAll('girl/boy','boy');
+                    comment = comment.replaceAll('She/He','He');
+                    comment = comment.replaceAll('Her/Him','Him');
+                    comment = comment.replaceAll('Her/His','His');
+                    comment = comment.replaceAll('she/he','he');
+                    comment = comment.replaceAll('her/him','him');
+                    comment = comment.replaceAll('her/his','his');
+                    comment = comment.replaceAll('NAME',nickname);
+                }
+                document.getElementById('fillme').innerHTML = comment;
+                navigator.clipboard.writeText(comment);
+            }
+        };
+
+
+
+
+        function deleteall(x,y) {
+            x.checked = false;
+        }
+
+
+
+        function restart() {
+            let checks = document.querySelectorAll(':checked');
+            checks.forEach(deleteall);
+            document.getElementById('fillme').innerHTML = '';
+            document.getElementById('nickname').value = '';
+        };
+
+    </script>
+
+
+
+</div>
+
+
+
+{% endblock content %}
